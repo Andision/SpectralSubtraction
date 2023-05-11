@@ -3,11 +3,14 @@ import scipy
 import soundfile
 import librosa
 import matplotlib.pyplot as plt
+import os
+
+import xunfei as xf
 
 MAIN_DIR = "C:/Users/Andision/Documents/GitHub/SpectralSubtraction/"
 # AUDIO_TEST = MAIN_DIR+"test.wav"
 # AUDIO_FILE = MAIN_DIR+"test.wav"
-AUDIO_FILE = MAIN_DIR+"audio.wav"
+AUDIO_FILE = MAIN_DIR+"subway.broadcast.wav"
 OUTPUT_FILE = MAIN_DIR+"output.wav"
 ORIGIN_1_FILE = MAIN_DIR+"origin1.wav"
 ORIGIN_2_FILE = MAIN_DIR+"origin2.wav"
@@ -66,6 +69,42 @@ def Process():
 
     # for i in range(0,audioTimeSeries.size):
     #     print(i,audioTimeSeries[i],clearTimeSeries[i])
+
+
+def FrequencyDomainProcess(samplePath):
+
+    audioFileDir = samplePath+'/audio.wav'
+    leftChannelTimeSeries, rightChannelTimeSeries, samplingRate = ImportAudioFile(
+        audioFileDir)
+
+    if np.sum(np.square(leftChannelTimeSeries)) > np.sum(np.square(rightChannelTimeSeries)):
+        audioTimeSeries = leftChannelTimeSeries.copy()
+        noiseTimeSeries = rightChannelTimeSeries.copy()
+    else:
+        audioTimeSeries = rightChannelTimeSeries.copy()
+        noiseTimeSeries = leftChannelTimeSeries.copy()
+
+    audioFrequencySeries = librosa.stft(audioTimeSeries)
+    audioFrequencySeriesAmplitude = np.abs(audioFrequencySeries)
+    audioFrequencySeriesEnergy = np.square(audioFrequencySeriesAmplitude)
+    audioFrequencySeriesPhase = np.angle(audioFrequencySeries)
+
+    noiseFrequencySeries = librosa.stft(noiseTimeSeries)
+    noiseFrequencySeriesAmplitude = np.abs(noiseFrequencySeries)
+    noiseFrequencySeriesEnergy = np.square(noiseFrequencySeriesAmplitude)
+    noiseFrequencySeriesPhase = np.angle(noiseFrequencySeries)
+
+    clearFrequencySeriesEnergy = audioFrequencySeriesEnergy - \
+        alpha * noiseFrequencySeriesEnergy
+    mask = (clearFrequencySeriesEnergy < 0)
+    clearFrequencySeriesEnergy[mask] = beta*noiseFrequencySeriesEnergy[mask]
+    clearFrequencySeries = np.sqrt(clearFrequencySeriesEnergy)
+    clearTimeSeries = librosa.istft(clearFrequencySeries)
+
+    soundfile.write(samplePath+'/fdp.pcm', clearTimeSeries,
+                    samplingRate, subtype="PCM_16", format="RAW")
+    soundfile.write(samplePath+'/fdp.wav', clearTimeSeries,
+                    samplingRate, subtype="PCM_16", format="WAV")
 
 
 def ImportAudioFile(fileDir: str):
@@ -127,29 +166,28 @@ def NoiseCancellation(leftChannelBalancedTimeSeries, rightChannelBalancedTimeSer
         masterBalancedTimeSeries = rightChannelBalancedTimeSeries.copy()
         slaveBalancedTimeSeries = leftChannelBalancedTimeSeries.copy()
 
-    if True:
-        masterBalancedTimeSeries = rightChannelBalancedTimeSeries.copy()
-        slaveBalancedTimeSeries = leftChannelBalancedTimeSeries.copy()
-    
     for i in range(len(masterBalancedTimeSeries)):
         masterPower = masterBalancedTimeSeries[i]**2
         slavePower = slaveBalancedTimeSeries[i]**2
 
-        if masterPower==0 or slavePower==0:
+        if masterPower == 0 or slavePower == 0:
             continue
 
         # if slavePower > masterPower*NOISE_RATE_THRESHOLD:
         #     signHere = masterBalancedTimeSeries[i]/np.abs(masterBalancedTimeSeries[i])
         #     masterBalancedTimeSeries[i] = signHere * np.sqrt(max(masterPower-slavePower*NOISE_RATE_THRESHOLD,0))
 
-        signHere = masterBalancedTimeSeries[i]/np.abs(masterBalancedTimeSeries[i])
-        masterBalancedTimeSeries[i] = signHere * np.sqrt(max(masterPower-slavePower,0))
+        signHere = masterBalancedTimeSeries[i] / \
+            np.abs(masterBalancedTimeSeries[i])
+        masterBalancedTimeSeries[i] = signHere * \
+            np.sqrt(max(masterPower-slavePower, 0))
 
     return masterBalancedTimeSeries
 
 
-if __name__ == "__main__":
-    audioFileDir = MAIN_DIR+"subway.broadcast.wav"
+def TimeDomainProcess(samplePath):
+    # audioFileDir = MAIN_DIR+"subway.broadcast.wav"
+    audioFileDir = samplePath+'/audio.wav'
     leftChannelTimeSeries, rightChannelTimeSeries, samplingRate = ImportAudioFile(
         audioFileDir)
 
@@ -162,9 +200,47 @@ if __name__ == "__main__":
     clearTimeSeries = NoiseCancellation(leftChannelBalancedTimeSeries,
                                         rightChannelBalancedTimeSeries)
 
-    soundfile.write(OUTPUT_FILE, clearTimeSeries, samplingRate)
-    soundfile.write(ORIGIN_1_FILE, leftChannelBalancedTimeSeries, samplingRate)
-    soundfile.write(ORIGIN_2_FILE, rightChannelBalancedTimeSeries, samplingRate)
+    # soundfile.write(OUTPUT_FILE, clearTimeSeries, samplingRate)
+    # soundfile.write(ORIGIN_1_FILE, leftChannelBalancedTimeSeries, samplingRate)
+    # soundfile.write(ORIGIN_2_FILE, rightChannelBalancedTimeSeries, samplingRate)
+    soundfile.write(samplePath+'/tdp.pcm', clearTimeSeries,
+                    samplingRate, subtype="PCM_16", format="RAW")
+    soundfile.write(samplePath+'/tdp.wav', clearTimeSeries,
+                    samplingRate, subtype="PCM_16", format="WAV")
 
 
-    # Process()
+if __name__ == "__main__":
+
+    rootPath = "C:/Users/Andision/Documents/GitHub/SpectralSubtraction/audioFiles/"
+
+    for sample in os.listdir(rootPath):
+
+        samplePath = rootPath+sample
+        pcmFilePath = samplePath+'/audio.pcm'
+        wavFilePath = samplePath+'/audio.wav'
+
+        wavFileSize = os.path.getsize(wavFilePath)
+
+        # 200KB
+        if wavFileSize < 200 * 1024:
+            continue
+
+        TimeDomainProcess(samplePath)
+        FrequencyDomainProcess(samplePath)
+        tdpResult = xf.voiceToText(samplePath+'/tdp.pcm').strip()
+        fdpResult = xf.voiceToText(samplePath+'/fdp.pcm').strip()
+
+        # print(tdpResult)
+        # print(fdpResult)
+
+        resFilePath = samplePath+'/rec_result.txt'
+        with open(resFilePath, encoding='utf-8') as f:
+            resFile = f.readlines()
+            baselineResult = resFile[-1].strip() if len(resFile) > 0 else ""
+
+        if baselineResult != tdpResult or baselineResult != fdpResult:
+            print(sample)
+            print(baselineResult)
+            print(tdpResult)
+            print(fdpResult)
+            print('\n')
