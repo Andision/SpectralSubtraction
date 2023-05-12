@@ -185,6 +185,28 @@ def NoiseCancellation(leftChannelBalancedTimeSeries, rightChannelBalancedTimeSer
     return masterBalancedTimeSeries
 
 
+def CutNoiseSlice(audioTimeSeries, samplingRate):
+    audioLength = audioTimeSeries.shape[0]
+    sliceStep = int(samplingRate/4)
+    averageSlicePowerList = []
+
+    for i in range(0, audioLength, sliceStep):
+        lowerBound = i
+        upperBound = min(i+sliceStep, audioLength)
+        averageSlicePowerList.append(
+            np.sum(np.square(audioTimeSeries[lowerBound:upperBound])))
+
+    thresholdAxis = sorted(averageSlicePowerList)[
+        int(len(averageSlicePowerList)/4*3)]
+    thresholdBase = thresholdAxis * 0.1
+
+    for i in range(0, len(averageSlicePowerList)):
+        if averageSlicePowerList[i] < thresholdBase:
+            lowerBound = i*sliceStep
+            upperBound = min(lowerBound+sliceStep, audioLength)
+            audioTimeSeries[lowerBound:upperBound] = 0
+
+
 def TimeDomainProcess(samplePath):
     # audioFileDir = MAIN_DIR+"subway.broadcast.wav"
     audioFileDir = samplePath+'/audio.wav'
@@ -199,6 +221,8 @@ def TimeDomainProcess(samplePath):
 
     clearTimeSeries = NoiseCancellation(leftChannelBalancedTimeSeries,
                                         rightChannelBalancedTimeSeries)
+
+    voiceTimeSeries = CutNoiseSlice(clearTimeSeries, samplingRate)
 
     # soundfile.write(OUTPUT_FILE, clearTimeSeries, samplingRate)
     # soundfile.write(ORIGIN_1_FILE, leftChannelBalancedTimeSeries, samplingRate)
@@ -227,6 +251,7 @@ if __name__ == "__main__":
 
         TimeDomainProcess(samplePath)
         FrequencyDomainProcess(samplePath)
+        break
         tdpResult = xf.voiceToText(samplePath+'/tdp.pcm').strip()
         fdpResult = xf.voiceToText(samplePath+'/fdp.pcm').strip()
 
